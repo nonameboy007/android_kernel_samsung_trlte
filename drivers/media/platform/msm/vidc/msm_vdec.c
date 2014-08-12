@@ -20,8 +20,8 @@
 
 #define MSM_VDEC_DVC_NAME "msm_vdec_8974"
 #define MIN_NUM_OUTPUT_BUFFERS 4
-#define MAX_NUM_OUTPUT_BUFFERS VB2_MAX_FRAME
-#define DEFAULT_VIDEO_CONCEAL_COLOR_BLACK 0x8010
+#define MAX_NUM_OUTPUT_BUFFERS VIDEO_MAX_FRAME
+#define DEFAULT_VIDEO_CONCEAL_COLOR_BLACK 0x8080
 #define MB_SIZE_IN_PIXEL (16 * 16)
 
 #define TZ_DYNAMIC_BUFFER_FEATURE_ID 12
@@ -492,7 +492,30 @@ static struct msm_vidc_ctrl msm_vdec_ctrls[] = {
 		.name = "Buffer size limit",
 		.type = V4L2_CTRL_TYPE_INTEGER,
 		.minimum = 0,
-		.maximum = 0x7fffffff,
+		.maximum = INT_MAX,
+		.default_value = 0,
+		.step = 1,
+		.menu_skip_mask = 0,
+		.qmenu = NULL,
+	},
+	{
+		.id = V4L2_CID_MPEG_VIDC_VIDEO_SECURE_SCALING_THRESHOLD,
+		.name = "Secure scaling output2 threshold",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.minimum = 0,
+		.maximum = INT_MAX,
+		.default_value = 0,
+		.step = 1,
+		.menu_skip_mask = 0,
+		.qmenu = NULL,
+		.flags = V4L2_CTRL_FLAG_VOLATILE,
+	},
+	{
+		.id = V4L2_CID_MPEG_VIDC_VIDEO_NON_SECURE_OUTPUT2,
+		.name = "Non-Secure output2",
+		.type = V4L2_CTRL_TYPE_BOOLEAN,
+		.minimum = 0,
+		.maximum = 1,
 		.default_value = 0,
 		.step = 1,
 		.menu_skip_mask = 0,
@@ -743,14 +766,6 @@ int msm_vdec_prepare_buf(struct msm_vidc_inst *inst,
 	}
 	hdev = inst->core->device;
 
-	if (inst->state == MSM_VIDC_CORE_INVALID ||
-			inst->core->state == VIDC_CORE_INVALID) {
-		dprintk(VIDC_ERR,
-			"Core %p in bad state, ignoring prepare buf\n",
-				inst->core);
-		goto exit;
-	}
-	
 	switch (b->type) {
 	case V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE:
 		break;
@@ -800,7 +815,6 @@ int msm_vdec_prepare_buf(struct msm_vidc_inst *inst,
 		dprintk(VIDC_ERR, "Buffer type not recognized: %d\n", b->type);
 		break;
 	}
-exit:	
 	return rc;
 }
 
@@ -1756,6 +1770,8 @@ int msm_vdec_inst_init(struct msm_vidc_inst *inst)
 	inst->capability.width.max = DEFAULT_WIDTH;
 	inst->capability.buffer_mode[OUTPUT_PORT] = HAL_BUFFER_MODE_STATIC;
 	inst->capability.buffer_mode[CAPTURE_PORT] = HAL_BUFFER_MODE_STATIC;
+	inst->capability.secure_output2_threshold.min = 0;
+	inst->capability.secure_output2_threshold.max = 0;
 	inst->buffer_mode_set[OUTPUT_PORT] = HAL_BUFFER_MODE_STATIC;
 	inst->buffer_mode_set[CAPTURE_PORT] = HAL_BUFFER_MODE_STATIC;
 	inst->prop.fps = 30;
@@ -1843,10 +1859,22 @@ static int try_get_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 		dprintk(VIDC_DBG, "%s: LEVEL ctrl->id:%x ctrl->val:%d\n",
 					__func__, ctrl->id, ctrl->val);
 		break;
-	default:
-		dprintk(VIDC_ERR, "%s id:%x not supported\n",
+	case V4L2_CID_MPEG_VIDC_VIDEO_SECURE_SCALING_THRESHOLD:
+		if (!(inst->flags & VIDC_SECURE) ||
+			!inst->capability.secure_output2_threshold.max) {
+			dprintk(VIDC_ERR, "%s id:%x invalid configuration\n",
 					__func__, ctrl->id);
-		rc = -EINVAL;
+			rc = -EINVAL;
+			break;
+		}
+		dprintk(VIDC_DBG,
+				"Secure Scaling Threshold is : %d",
+				inst->capability.secure_output2_threshold.max);
+		ctrl->val = inst->capability.secure_output2_threshold.max;
+		break;
+	default:
+		dprintk(VIDC_DBG, "%s id:%x not supported\n",
+					__func__, ctrl->id);
 		break;
 	}
 	return rc;
@@ -1927,20 +1955,8 @@ static int try_set_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 		pdata = &hal_property;
 		break;
 	case V4L2_CID_MPEG_VIDC_VIDEO_SYNC_FRAME_DECODE:
-		switch (ctrl->val) {
-		case V4L2_MPEG_VIDC_VIDEO_SYNC_FRAME_DECODE_DISABLE:
-			inst->flags &= ~VIDC_THUMBNAIL;
-			break;
-		case V4L2_MPEG_VIDC_VIDEO_SYNC_FRAME_DECODE_ENABLE:
-			inst->flags |= VIDC_THUMBNAIL;
-			break;
-		default:
-			/* Should never reach */
-			rc = -ENOTSUPP;
-			break;
-		}
-
-		property_id = HAL_PARAM_VDEC_SYNC_FRAME_DECODE;
+		property_id =
+			HAL_PARAM_VDEC_SYNC_FRAME_DECODE;
 		hal_property.enable = ctrl->val;
 		pdata = &hal_property;
 		break;
@@ -1970,7 +1986,6 @@ static int try_set_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 			break;
 		}
 
-		msm_comm_scale_clocks_and_bus(inst);
 		break;
 	case V4L2_CID_MPEG_VIDC_VIDEO_ALLOC_MODE_INPUT:
 		if (ctrl->val == V4L2_MPEG_VIDC_VIDEO_DYNAMIC) {
@@ -2095,12 +2110,17 @@ static int try_set_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 		pdata = &property_val;
 		break;
 	case V4L2_CID_MPEG_VIDC_VIDEO_BUFFER_SIZE_LIMIT:
-	{
 		inst->capability.buffer_size_limit = ctrl->val;
 		dprintk(VIDC_DBG,
 			"Limiting input buffer size to :%u\n", ctrl->val);
 		break;
-	}
+	case V4L2_CID_MPEG_VIDC_VIDEO_NON_SECURE_OUTPUT2:
+		property_id = HAL_PARAM_VDEC_NON_SECURE_OUTPUT2;
+		hal_property.enable = ctrl->val;
+		dprintk(VIDC_DBG, "%s non_secure output2\n",
+			ctrl->val ? "Enabling" : "Disabling");
+		pdata = &hal_property;
+		break;
 	default:
 		break;
 	}
@@ -2164,12 +2184,18 @@ static int msm_vdec_op_g_volatile_ctrl(struct v4l2_ctrl *ctrl)
 		goto failed_open_done;
 	}
 	for (c = 0; c < master->ncontrols; ++c) {
-		if (master->cluster[c]->id == ctrl->id) {
-			rc = try_get_ctrl(inst, ctrl);
-			if (rc) {
-				dprintk(VIDC_ERR, "Failed getting %x\n",
-					ctrl->id);
-				return rc;
+		int d = 0;
+		for (d = 0; d < NUM_CTRLS; ++d) {
+			if (master->cluster[c]->id == inst->ctrls[d]->id &&
+				inst->ctrls[d]->flags &
+				V4L2_CTRL_FLAG_VOLATILE) {
+				rc = try_get_ctrl(inst, master->cluster[c]);
+				if (rc) {
+					dprintk(VIDC_ERR, "Failed getting %x\n",
+							master->cluster[c]->id);
+					return rc;
+				}
+				break;
 			}
 		}
 	}
@@ -2209,11 +2235,7 @@ static struct v4l2_ctrl **get_super_cluster(struct msm_vidc_inst *inst,
 			NUM_CTRLS, GFP_KERNEL);
 
 	if (!size || !cluster || !inst)
-	{
-		if(cluster) 
-			kfree(cluster); // PREVENT Resouce leak fix
 		return NULL;
-	}
 
 	for (c = 0; c < NUM_CTRLS; c++)
 		cluster[sz++] = inst->ctrls[c];
@@ -2300,6 +2322,7 @@ int msm_vdec_ctrl_init(struct msm_vidc_inst *inst)
 		case V4L2_CID_MPEG_VIDC_VIDEO_H263_PROFILE:
 		case V4L2_CID_MPEG_VIDC_VIDEO_H263_LEVEL:
 		case V4L2_CID_MPEG_VIDC_VIDEO_VP8_PROFILE_LEVEL:
+		case V4L2_CID_MPEG_VIDC_VIDEO_SECURE_SCALING_THRESHOLD:
 			ctrl->flags |= msm_vdec_ctrls[idx].flags;
 			break;
 		}
