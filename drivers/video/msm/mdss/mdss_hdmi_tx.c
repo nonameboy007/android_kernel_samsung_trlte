@@ -1306,9 +1306,11 @@ static int hdmi_tx_init_panel_info(struct hdmi_tx_ctrl *hdmi_ctrl)
 	pinfo->lcdc.h_back_porch = timing->back_porch_h;
 	pinfo->lcdc.h_front_porch = timing->front_porch_h;
 	pinfo->lcdc.h_pulse_width = timing->pulse_width_h;
+	pinfo->lcdc.h_polarity = timing->active_low_h;
 	pinfo->lcdc.v_back_porch = timing->back_porch_v;
 	pinfo->lcdc.v_front_porch = timing->front_porch_v;
 	pinfo->lcdc.v_pulse_width = timing->pulse_width_v;
+	pinfo->lcdc.v_polarity = timing->active_low_v;
 
 	pinfo->type = DTV_PANEL;
 	pinfo->pdest = DISPLAY_2;
@@ -3165,6 +3167,7 @@ static irqreturn_t hdmi_tx_isr(int irq, void *data)
 				BIT(0) | BIT(2) | BIT(1));
 		}
 #else
+
 		/*
 		 * Ack the current hpd interrupt and stop listening to
 		 * new hpd interrupt.

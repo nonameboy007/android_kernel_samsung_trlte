@@ -1019,7 +1019,6 @@ void security_compute_operation(u32 ssid,
 		       __func__, tsid);
 		goto out;
 	}
-
 	tclass = unmap_class(orig_tclass);
 	if (unlikely(orig_tclass && !tclass)) {
 		if (policydb.allow_unknown)
@@ -1061,6 +1060,7 @@ allow:
 	memset(od->allowed->perms, 0xff, sizeof(od->allowed->perms));
 	goto out;
 }
+
 /**
  * security_compute_av - Compute access vector decisions.
  * @ssid: source security identifier

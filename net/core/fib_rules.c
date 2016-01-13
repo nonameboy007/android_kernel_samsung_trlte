@@ -203,6 +203,8 @@ static int fib_uid_range_match(struct flowi *fl, struct fib_rule *rule)
 		uid_lte(fl->flowi_uid, rule->uid_end));
 }
 
+
+
 static int fib_rule_match(struct fib_rule *rule, struct fib_rules_ops *ops,
 			  struct flowi *fl, int flags)
 {
@@ -398,9 +400,9 @@ static int fib_nl_newrule(struct sk_buff *skb, struct nlmsghdr* nlh)
 			rule->uid_end = fib_nl_uid(tb[FRA_UID_END]);
 		}
 		if (!uid_valid(rule->uid_start) ||
-			!uid_valid(rule->uid_end) ||
-			!uid_lte(rule->uid_start, rule->uid_end))
-			goto errout_free;
+		    !uid_valid(rule->uid_end) ||
+		    !uid_lte(rule->uid_start, rule->uid_end))
+		goto errout_free;
 	}
 
 	err = ops->configure(rule, skb, frh, tb);
@@ -510,11 +512,11 @@ static int fib_nl_delrule(struct sk_buff *skb, struct nlmsghdr* nlh)
 			continue;
 
 		if (tb[FRA_UID_START] &&
-			!uid_eq(rule->uid_start, fib_nl_uid(tb[FRA_UID_START])))
+		    !uid_eq(rule->uid_start, fib_nl_uid(tb[FRA_UID_START])))
 			continue;
 
 		if (tb[FRA_UID_END] &&
-			!uid_eq(rule->uid_end, fib_nl_uid(tb[FRA_UID_END])))
+		    !uid_eq(rule->uid_end, fib_nl_uid(tb[FRA_UID_END])))
 			continue;
 
 		if (!ops->compare(rule, frh, tb))
