@@ -873,7 +873,6 @@ static void msm_isp_process_done_buf(struct vfe_device *vfe_dev,
 	struct msm_isp_event_data buf_event;
 	uint32_t stream_idx = HANDLE_TO_IDX(stream_info->stream_handle);
 	uint32_t frame_id;
-	uint32_t buf_src;
 	memset(&buf_event, 0, sizeof(buf_event));
 
 	if(stream_idx >= MAX_NUM_STREAM) {
